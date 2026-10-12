@@ -1,0 +1,117 @@
+version: "3.8"
+
+services:
+  # Local Ethereum execution environment
+  anvil:
+    image: ghcr.io/foundry-rs/foundry:latest
+    container_name: vigil-anvil
+    entrypoint: ["anvil"]
+    command:
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8545"
+      - "--block-time"
+      - "1"
+      - "--chain-id"
+      - "31337"
+    ports:
+      - "8545:8545"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "cast block-number --rpc-url http://127.0.0.1:8545 || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  # Relational storage for indexed positions, blocks, and liquidations
+  postgres:
+    image: postgres:16-alpine
+    container_name: vigil-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-vigil}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+  # High-throughput pub/sub and persistence streaming engine
+  nats:
+    image: nats:latest
+    container_name: vigil-nats
+    command: ["-js", "-m", "8222"]
+    ports:
+      - "4222:4222" # Client port
+      - "8222:8222" # HTTP monitoring dashboard
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8222/varz"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+  # Microservice: Event Indexer & Reorg Engine
+  indexer:
+    build:
+      context: ./services
+      dockerfile: Dockerfile.indexer
+    container_name: vigil-indexer
+    environment:
+      RPC_URL: "http://anvil:8545"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-vigil}"
+      NATS_URL: "nats://nats:4222"
+      RUST_LOG: "info,indexer=debug"
+    depends_on:
+      anvil:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Microservice: Real-time Health Factor & Risk Monitoring Engine
+  risk-engine:
+    build:
+      context: ./services
+      dockerfile: Dockerfile.risk-engine
+    container_name: vigil-risk-engine
+    environment:
+      DATABASE_URL: "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-vigil}"
+      NATS_URL: "nats://nats:4222"
+      RUST_LOG: "info,risk_engine=debug"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Microservice: Execution & Nonce Manager
+  liquidator:
+    build:
+      context: ./services
+      dockerfile: Dockerfile.liquidator
+    container_name: vigil-liquidator
+    environment:
+      RPC_URL: "http://anvil:8545"
+      NATS_URL: "nats://nats:4222"
+      RUST_LOG: "info,liquidator=debug"
+    depends_on:
+      anvil:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:

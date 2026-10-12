@@ -1,0 +1,21 @@
+FROM rust:1.80-alpine AS builder
+
+WORKDIR /app
+RUN apk add --no-cache musl-dev
+
+COPY Cargo.toml Cargo.lock* ./
+COPY common ./common
+COPY indexer ./indexer
+COPY risk-engine ./risk-engine
+COPY liquidator ./liquidator
+
+RUN cargo build --release -p liquidator
+
+FROM alpine:3.20
+
+RUN apk add --no-cache ca-certificates
+WORKDIR /app
+
+COPY --from=builder /app/target/release/liquidator /usr/local/bin/liquidator
+
+ENTRYPOINT ["liquidator"]
