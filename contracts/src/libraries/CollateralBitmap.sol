@@ -3,10 +3,6 @@ pragma solidity 0.8.24;
 
 /// @notice Helpers for a uint256 where bit i means collateral asset i is enabled.
 library CollateralBitmap {
-    function isSet(uint256 bitmap, uint256 id) internal pure returns (bool) {
-        return bitmap & (uint256(1) << id) != 0;
-    }
-
     function set(uint256 bitmap, uint256 id) internal pure returns (uint256) {
         return bitmap | (uint256(1) << id);
     }

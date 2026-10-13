@@ -17,20 +17,8 @@ library FixedPointMath {
         return (product - 1) / denominator + 1;
     }
 
-    function wadMulDown(uint256 a, uint256 b) internal pure returns (uint256) {
-        return mulDivDown(a, b, WAD);
-    }
-
-    function wadMulUp(uint256 a, uint256 b) internal pure returns (uint256) {
-        return mulDivUp(a, b, WAD);
-    }
-
     function wadDivDown(uint256 a, uint256 b) internal pure returns (uint256) {
         return mulDivDown(a, WAD, b);
-    }
-
-    function wadDivUp(uint256 a, uint256 b) internal pure returns (uint256) {
-        return mulDivUp(a, WAD, b);
     }
 
     function rayMulDown(uint256 a, uint256 b) internal pure returns (uint256) {
