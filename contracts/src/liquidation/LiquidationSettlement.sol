@@ -25,6 +25,15 @@ contract LiquidationSettlement is EIP712 {
         uint256 deadline;
     }
 
+    struct Quote {
+        uint256 healthBefore;
+        uint256 debt;
+        uint256 repayAmount;
+        uint256 collateralSeized;
+        uint256 bonusBps;
+        bool underwater;
+    }
+
     bytes32 public constant INTENT_TYPEHASH = keccak256(
         "LiquidationIntent(address borrower,address collateralAsset,uint256 maxRepay,uint256 minCollateralOut,uint256 nonce,uint256 deadline)"
     );
@@ -119,32 +128,23 @@ contract LiquidationSettlement is EIP712 {
         address liquidator = _recoverSigner(intent, signature);
         _useNonce(liquidator, intent.nonce);
 
-        uint256 startBlock = auctionStartBlock[intent.borrower];
-        if (startBlock == 0) revert NoActiveAuction();
+        Quote memory quote = _quote(intent);
 
-        (uint256 healthBefore, uint256 debt, uint256 available) =
-            pool.getLiquidationData(intent.borrower, intent.collateralAsset);
-        if (healthBefore >= HEALTH_FACTOR_ONE) revert PositionHealthy();
-
-        uint256 repayAmount = _repayAmount(debt, intent.maxRepay);
-        if (repayAmount == 0) revert NothingToRepay();
-
-        uint256 bonusBps = _bonusBps(startBlock);
-        uint256 collateralSeized = _collateralFor(intent.collateralAsset, repayAmount, bonusBps);
-
-        // Take everything that is left rather than reverting, the shortfall is handled as bad debt below.
-        if (collateralSeized > available) collateralSeized = available;
-        if (collateralSeized < intent.minCollateralOut) revert InsufficientCollateralOut();
-
-        IERC20(debtAsset).safeTransferFrom(liquidator, address(pool), repayAmount);
-        (uint256 healthAfter, bool collateralLeft) =
-            pool.applyLiquidation(intent.borrower, intent.collateralAsset, liquidator, repayAmount, collateralSeized);
-
-        emit LiquidationExecuted(
-            intent.borrower, liquidator, intent.collateralAsset, repayAmount, collateralSeized, bonusBps
+        IERC20(debtAsset).safeTransferFrom(liquidator, address(pool), quote.repayAmount);
+        (uint256 healthAfter, bool collateralLeft) = pool.applyLiquidation(
+            intent.borrower, intent.collateralAsset, liquidator, quote.repayAmount, quote.collateralSeized
         );
 
-        _finishAuction(intent.borrower, healthBefore, healthAfter, collateralLeft, debt - repayAmount);
+        emit LiquidationExecuted(
+            intent.borrower,
+            liquidator,
+            intent.collateralAsset,
+            quote.repayAmount,
+            quote.collateralSeized,
+            quote.bonusBps
+        );
+
+        _finishAuction(intent.borrower, quote, healthAfter, collateralLeft);
     }
 
     /// @notice Writes off debt that no collateral is left to cover.
@@ -162,20 +162,15 @@ contract LiquidationSettlement is EIP712 {
         return _bonusBps(startBlock);
     }
 
-    function _finishAuction(
-        address borrower,
-        uint256 healthBefore,
-        uint256 healthAfter,
-        bool collateralLeft,
-        uint256 debtLeft
-    ) internal {
-        bool finished = debtLeft == 0;
+    function _finishAuction(address borrower, Quote memory quote, uint256 healthAfter, bool collateralLeft) internal {
+        bool finished = quote.debt == quote.repayAmount;
 
         if (!finished && !collateralLeft) {
             _writeOff(borrower);
             finished = true;
         } else if (!finished) {
-            if (healthAfter < healthBefore) revert HealthFactorDecreased();
+            // An underwater position cannot get healthier, whatever is taken, so only solvent ones are checked.
+            if (!quote.underwater && healthAfter < quote.healthBefore) revert HealthFactorDecreased();
             finished = healthAfter >= HEALTH_FACTOR_ONE;
         }
 
@@ -222,6 +217,33 @@ contract LiquidationSettlement is EIP712 {
     }
 
     // Half the debt at most, unless that would leave a dust balance nobody would bother to clear.
+    /// @dev If the collateral cannot cover the whole debt plus the bonus the position is underwater. Then the close
+    /// factor is lifted so the liquidator can clear it out, and what is left is written off as bad debt.
+    function _quote(LiquidationIntent calldata intent) internal view returns (Quote memory quote) {
+        uint256 startBlock = auctionStartBlock[intent.borrower];
+        if (startBlock == 0) revert NoActiveAuction();
+
+        uint256 available;
+        (quote.healthBefore, quote.debt, available) = pool.getLiquidationData(intent.borrower, intent.collateralAsset);
+        if (quote.healthBefore >= HEALTH_FACTOR_ONE) revert PositionHealthy();
+
+        quote.bonusBps = _bonusBps(startBlock);
+        (uint256 rateNumerator, uint256 rateDenominator) = _conversionRate(intent.collateralAsset, quote.bonusBps);
+        quote.underwater = Math.mulDiv(quote.debt, rateNumerator, rateDenominator) > available;
+
+        if (quote.underwater) {
+            quote.repayAmount = intent.maxRepay < quote.debt ? intent.maxRepay : quote.debt;
+        } else {
+            quote.repayAmount = _repayAmount(quote.debt, intent.maxRepay);
+        }
+        if (quote.repayAmount == 0) revert NothingToRepay();
+
+        // Take everything that is left rather than reverting, the shortfall is handled as bad debt.
+        quote.collateralSeized = Math.mulDiv(quote.repayAmount, rateNumerator, rateDenominator);
+        if (quote.collateralSeized > available) quote.collateralSeized = available;
+        if (quote.collateralSeized < intent.minCollateralOut) revert InsufficientCollateralOut();
+    }
+
     function _repayAmount(uint256 debt, uint256 maxRepay) internal view returns (uint256) {
         uint256 cap = (debt * CLOSE_FACTOR_BPS) / BPS;
         if (debt - cap < dustThreshold) cap = debt;
@@ -235,18 +257,19 @@ contract LiquidationSettlement is EIP712 {
         return (maxBonusBps * elapsed) / auctionDuration;
     }
 
-    // Rounds down, so the borrower never loses more collateral than the repayment and bonus justify.
-    function _collateralFor(address collateralAsset, uint256 repayAmount, uint256 bonusBps)
+    // Collateral for a repayment is repayAmount * numerator / denominator, rounded down so the borrower never loses
+    // more than the repayment and bonus justify.
+    function _conversionRate(address collateralAsset, uint256 bonusBps)
         internal
         view
-        returns (uint256)
+        returns (uint256 numerator, uint256 denominator)
     {
         uint256 debtPrice = oracle.getPrice(debtAsset);
         uint256 collateralPrice = oracle.getPrice(collateralAsset);
-
-        uint256 valueWithBonus = Math.mulDiv(repayAmount, debtPrice * (BPS + bonusBps), collateralPrice * BPS);
         uint256 debtDecimals = IERC20Metadata(debtAsset).decimals();
         uint256 collateralDecimals = IERC20Metadata(collateralAsset).decimals();
-        return Math.mulDiv(valueWithBonus, 10 ** collateralDecimals, 10 ** debtDecimals);
+
+        numerator = 10 ** collateralDecimals * debtPrice * (BPS + bonusBps);
+        denominator = collateralPrice * BPS * 10 ** debtDecimals;
     }
 }
