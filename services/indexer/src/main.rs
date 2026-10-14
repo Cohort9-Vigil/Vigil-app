@@ -1,75 +1,76 @@
-//! Vigil Indexer Microservice
-//! Subscribes to EVM logs from Anvil/RPC, indexes borrower position updates,
-//! handles chain reorgs, and streams events to NATS JetStream.
-
 use std::time::Duration;
-use alloy::providers::Provider;
-use anyhow::Result;
-use indexer::listener::BlockIngestor;
-use indexer::publisher::NatsJetStreamPublisher;
-use tracing::{error, info, warn};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+use alloy::primitives::Address;
+use alloy::providers::{Provider, ProviderBuilder};
+use clap::Parser;
+use sqlx::postgres::PgPoolOptions;
+use vigil_common::config::Deployment;
+use vigil_common::model::MAX_COLLATERAL;
+use vigil_indexer::chain::RpcChain;
+use vigil_indexer::engine::Indexer;
+use vigil_indexer::sink::NatsSink;
+use vigil_indexer::store::PgIndexerStore;
+
+#[derive(Parser, Debug)]
+#[command(about = "Vigil Indexer: publishes pool events, retractions and block state")]
+struct Args {
+    #[arg(long, env = "RPC_URL", default_value = "http://127.0.0.1:8545")]
+    rpc_url: String,
+    #[arg(long, env = "DEPLOYMENT_FILE")]
+    deployment_file: String,
+    #[arg(long, env = "DATABASE_URL")]
+    database_url: String,
+    #[arg(long, env = "NATS_URL", default_value = "nats://127.0.0.1:4222")]
+    nats_url: String,
+    /// First block to index when no cursor exists.
+    #[arg(long, env = "START_BLOCK", default_value_t = 0)]
+    start_block: u64,
+    #[arg(long, env = "POLL_MS", default_value_t = 200)]
+    poll_ms: u64,
+}
 
 #[tokio::main]
-async fn main() -> Result<()> {
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,indexer=debug".into()))
-        .with(tracing_subscriber::fmt::layer().json())
-        .init();
+async fn main() -> anyhow::Result<()> {
+    vigil_common::telemetry::init("indexer");
+    let args = Args::parse();
+    let deployment = Deployment::load(&args.deployment_file)?;
 
-    info!("Starting Vigil Indexer microservice...");
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&args.database_url)
+        .await?;
+    sqlx::migrate!("../../migrations").run(&pool).await?;
 
-    let rpc_url = std::env::var("RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:8545".into());
-    let nats_url = std::env::var("NATS_URL").unwrap_or_else(|_| "nats://127.0.0.1:4222".into());
-    let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/vigil".into());
-    let poll_interval_ms: u64 = std::env::var("POLL_INTERVAL_MS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(1000);
+    let nats = async_nats::connect(&args.nats_url).await?;
+    let sink = NatsSink::connect(nats).await?;
 
-    info!(
-        rpc_url = %rpc_url,
-        nats_url = %nats_url,
-        database_url = %database_url,
-        poll_interval_ms = poll_interval_ms,
-        "Configuration loaded"
+    let provider = ProviderBuilder::new()
+        .connect_http(args.rpc_url.parse()?)
+        .erased();
+    let mut by_bit: [Option<Address>; MAX_COLLATERAL] = [None; MAX_COLLATERAL];
+    for c in &deployment.collaterals {
+        by_bit[c.bit_index as usize] = Some(c.address);
+    }
+    let chain = RpcChain::new(
+        provider,
+        deployment.pool,
+        deployment.oracle,
+        deployment.debt,
+        by_bit,
     );
 
-    // Initialize NATS JetStream Publisher
-    let publisher = match NatsJetStreamPublisher::connect(&nats_url).await {
-        Ok(publ) => publ,
-        Err(e) => {
-            error!(error = %e, "Failed to connect to NATS JetStream; exiting");
-            return Err(e);
-        }
-    };
-
-    // Initialize BlockIngestor with 10-block sliding window
-    let mut ingestor = BlockIngestor::connect_http(&rpc_url, publisher, 10)?;
-    info!("BlockIngestor initialized with 10-block reorg sliding window");
-
-    let mut poll_interval = tokio::time::interval(Duration::from_millis(poll_interval_ms));
+    let store = PgIndexerStore::new(pool);
+    let mut indexer = Indexer::resume(chain, sink, store, args.start_block).await?;
+    tracing::info!(next = indexer.next, "indexer started");
 
     loop {
-        tokio::select! {
-            _ = tokio::signal::ctrl_c() => {
-                info!("Shutdown signal received. Shutting down Indexer gracefully.");
-                break;
-            }
-            _ = poll_interval.tick() => {
-                match ingestor.provider.get_block_number().await {
-                    Ok(latest_head) => {
-                        if let Err(e) = ingestor.ingest_hint(latest_head).await {
-                            warn!(error = %e, head = latest_head, "Error during block ingestion");
-                        }
-                    }
-                    Err(e) => {
-                        warn!(error = %e, "Failed to poll block number from RPC");
-                    }
-                }
-            }
+        match indexer.catch_up().await {
+            Ok(0) => {}
+            Ok(n) => tracing::info!(blocks = n, next = indexer.next, "indexed"),
+            // A failed read is retried. A reorg deeper than the ring is fatal, so exit (fail closed).
+            Err(e) if e.to_string().contains("deeper than") => return Err(e),
+            Err(e) => tracing::warn!(error = %e, "indexer step failed, retrying"),
         }
+        tokio::time::sleep(Duration::from_millis(args.poll_ms)).await;
     }
-
-    Ok(())
 }
