@@ -13,3 +13,5 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
+alloy = { workspace = true }
+

@@ -20,7 +20,7 @@ pub struct Position {
     pub last_updated_block: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OraclePrice {
     pub asset: Address,
     pub price_wad: u128,
