@@ -2,9 +2,7 @@
 pragma solidity 0.8.24;
 
 import {VigilBase} from "./Base.t.sol";
-import {VigilPool} from "../src/core/VigilPool.sol";
 import {LiquidationSettlement} from "../src/liquidation/LiquidationSettlement.sol";
-import {MockERC20} from "../src/mocks/MockERC20.sol";
 
 contract LiquidationTest is VigilBase {
     // 10 WETH at $2000 backing $10,000 of debt, health factor 1.6

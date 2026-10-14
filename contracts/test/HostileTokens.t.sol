@@ -7,22 +7,13 @@ import {FeeOnTransferToken} from "../src/mocks/FeeOnTransferToken.sol";
 import {MockERC20} from "../src/mocks/MockERC20.sol";
 import {NoReturnToken} from "../src/mocks/NoReturnToken.sol";
 import {ReentrantToken} from "../src/mocks/ReentrantToken.sol";
-import {MockChainlinkFeed} from "../src/mocks/MockChainlinkFeed.sol";
-import {IPriceFeed} from "../src/interfaces/IPriceFeed.sol";
-import {ITwapSource} from "../src/interfaces/ITwapSource.sol";
 import {SafeTransfer} from "../src/libraries/SafeTransfer.sol";
 
 contract HostileTokensTest is VigilBase {
-    function _listToken(address token, uint256 priceUsd) internal {
-        MockChainlinkFeed feed = new MockChainlinkFeed(8, int128(int256(priceUsd * 1e8)));
-        oracle.setSource(token, plainSource(feed));
-        pool.listCollateral(token, 8000);
-    }
-
     // SC-11
     function test_tokenWithoutReturnValuesCanBeDepositedAndWithdrawn() public {
         NoReturnToken usdt = new NoReturnToken("Tether", "USDT", 6);
-        _listToken(address(usdt), 1);
+        listToken(address(usdt), 1);
         usdt.mint(borrower, 1000e6);
 
         vm.startPrank(borrower);
@@ -38,7 +29,7 @@ contract HostileTokensTest is VigilBase {
 
     function test_failedTransferReverts() public {
         NoReturnToken usdt = new NoReturnToken("Tether", "USDT", 6);
-        _listToken(address(usdt), 1);
+        listToken(address(usdt), 1);
 
         vm.startPrank(borrower);
         usdt.approve(address(pool), 1000e6);
@@ -60,7 +51,7 @@ contract HostileTokensTest is VigilBase {
     // SC-12
     function test_feeOnTransferCreditsTheAmountThatArrived() public {
         FeeOnTransferToken taxed = new FeeOnTransferToken("Taxed", "TAX", 18, 200);
-        _listToken(address(taxed), 100);
+        listToken(address(taxed), 100);
         taxed.mint(borrower, 100 ether);
 
         vm.startPrank(borrower);
@@ -74,7 +65,7 @@ contract HostileTokensTest is VigilBase {
 
     function test_feeOnTransferBorrowLimitUsesTheCreditedAmount() public {
         FeeOnTransferToken taxed = new FeeOnTransferToken("Taxed", "TAX", 18, 200);
-        _listToken(address(taxed), 100);
+        listToken(address(taxed), 100);
         taxed.mint(borrower, 100 ether);
 
         vm.startPrank(borrower);
@@ -90,7 +81,7 @@ contract HostileTokensTest is VigilBase {
 
     function test_feeOnTransferWithdrawalPaysTheFeeAgain() public {
         FeeOnTransferToken taxed = new FeeOnTransferToken("Taxed", "TAX", 18, 200);
-        _listToken(address(taxed), 100);
+        listToken(address(taxed), 100);
         taxed.mint(borrower, 100 ether);
 
         vm.startPrank(borrower);
@@ -107,8 +98,8 @@ contract HostileTokensTest is VigilBase {
     function test_sameDollarValueGivesTheSameHealthFactorFor6And8Decimals() public {
         MockERC20 sixDecimals = new MockERC20("Six", "SIX", 6);
         MockERC20 eightDecimals = new MockERC20("Eight", "EIGHT", 8);
-        _listToken(address(sixDecimals), 100);
-        _listToken(address(eightDecimals), 100);
+        listToken(address(sixDecimals), 100);
+        listToken(address(eightDecimals), 100);
         sixDecimals.mint(borrower, 100e6);
 
         vm.startPrank(borrower);
@@ -133,7 +124,7 @@ contract HostileTokensTest is VigilBase {
     function testFuzz_borrowLimitFollowsTokenDecimals(uint8 decimalsSeed, uint256 amountSeed) public {
         uint8 tokenDecimals = uint8(bound(decimalsSeed, 6, 18));
         MockERC20 token = new MockERC20("Fuzz", "FUZZ", tokenDecimals);
-        _listToken(address(token), 100);
+        listToken(address(token), 100);
 
         uint256 unit = 10 ** tokenDecimals;
         uint256 amount = bound(amountSeed, 10 * unit, 1000 * unit);
@@ -156,7 +147,7 @@ contract HostileTokensTest is VigilBase {
     // SC-23
     function test_reentrantTokenCannotCallBackIntoThePool() public {
         ReentrantToken evil = new ReentrantToken("Evil", "EVIL", 18);
-        _listToken(address(evil), 10);
+        listToken(address(evil), 10);
         evil.mint(borrower, 10 ether);
         evil.setCallback(address(pool), abi.encodeCall(pool.supply, (1)), true);
 
@@ -170,7 +161,7 @@ contract HostileTokensTest is VigilBase {
 
     function test_reentryAttemptIsRecordedWhenTheTokenSwallowsIt() public {
         ReentrantToken evil = new ReentrantToken("Evil", "EVIL", 18);
-        _listToken(address(evil), 10);
+        listToken(address(evil), 10);
         evil.mint(borrower, 10 ether);
         evil.setCallback(address(pool), abi.encodeCall(pool.borrow, (1e6)), false);
 
@@ -186,7 +177,7 @@ contract HostileTokensTest is VigilBase {
 
     function test_reentrantWithdrawCannotDrainTheSamePosition() public {
         ReentrantToken evil = new ReentrantToken("Evil", "EVIL", 18);
-        _listToken(address(evil), 10);
+        listToken(address(evil), 10);
         evil.mint(borrower, 10 ether);
 
         vm.startPrank(borrower);
@@ -206,7 +197,7 @@ contract HostileTokensTest is VigilBase {
     // SC-24
     function test_viewsRevertDuringACallback() public {
         ReentrantToken evil = new ReentrantToken("Evil", "EVIL", 18);
-        _listToken(address(evil), 10);
+        listToken(address(evil), 10);
         evil.mint(borrower, 20 ether);
 
         vm.startPrank(borrower);

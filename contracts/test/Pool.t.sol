@@ -5,7 +5,6 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 
 import {VigilBase} from "./Base.t.sol";
 import {VigilPool} from "../src/core/VigilPool.sol";
-import {VigilStorage} from "../src/core/VigilStorage.sol";
 import {MockERC20} from "../src/mocks/MockERC20.sol";
 import {IOracleAdapter} from "../src/interfaces/IOracleAdapter.sol";
 import {InterestRateModel} from "../src/libraries/InterestRateModel.sol";
@@ -243,8 +242,8 @@ contract PoolTest is VigilBase {
     }
 
     function test_collateralListingLimits() public {
-        listToken(new MockERC20("A", "A", 18), 10);
-        listToken(new MockERC20("B", "B", 18), 10);
+        listToken(address(new MockERC20("A", "A", 18)), 10);
+        listToken(address(new MockERC20("B", "B", 18)), 10);
 
         MockERC20 extra = new MockERC20("C", "C", 18);
         vm.expectRevert(VigilPool.TooManyCollateralAssets.selector);
@@ -269,8 +268,8 @@ contract PoolTest is VigilBase {
     function test_healthFactorGasFollowsEnabledAssets() public {
         MockERC20 second = new MockERC20("Second", "TWO", 18);
         MockERC20 third = new MockERC20("Third", "THREE", 18);
-        listToken(second, 100);
-        listToken(third, 100);
+        listToken(address(second), 100);
+        listToken(address(third), 100);
 
         address oneEnabled = makeAddr("oneEnabled");
         address threeEnabled = makeAddr("threeEnabled");

@@ -89,10 +89,10 @@ abstract contract VigilBase is Test {
     }
 
     /// @dev Lists a new collateral token priced in whole dollars.
-    function listToken(MockERC20 token, uint256 priceUsd) internal returns (MockChainlinkFeed feed) {
+    function listToken(address token, uint256 priceUsd) internal returns (MockChainlinkFeed feed) {
         feed = new MockChainlinkFeed(8, int128(int256(priceUsd * 1e8)));
-        oracle.setSource(address(token), plainSource(feed));
-        pool.listCollateral(address(token), 8000);
+        oracle.setSource(token, plainSource(feed));
+        pool.listCollateral(token, 8000);
     }
 
     function openPosition(address user, uint256 wethAmount, uint256 borrowAmount) internal {

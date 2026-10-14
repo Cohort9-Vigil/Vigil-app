@@ -6,7 +6,6 @@ import {VigilPool} from "../src/core/VigilPool.sol";
 import {LiquidationSettlement} from "../src/liquidation/LiquidationSettlement.sol";
 import {OracleAdapter} from "../src/oracle/OracleAdapter.sol";
 import {MockAMM} from "../src/oracle/MockAMM.sol";
-import {MockChainlinkFeed} from "../src/mocks/MockChainlinkFeed.sol";
 import {IOracleAdapter} from "../src/interfaces/IOracleAdapter.sol";
 import {IPriceFeed} from "../src/interfaces/IPriceFeed.sol";
 import {ITwapSource} from "../src/interfaces/ITwapSource.sol";
