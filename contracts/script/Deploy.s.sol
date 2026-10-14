@@ -20,7 +20,7 @@ import {InterestRateModel} from "../src/libraries/InterestRateModel.sol";
 
 /// @notice Deploys the whole system for the acceptance scenario: a stablecoin and three collateral assets
 /// (fee-on-transfer, 6 decimals, 8 decimals), their feeds and AMMs, the pool behind a proxy and the settlement.
-/// Addresses are written to deployments/anvil.json for the Seed script and the services.
+/// Addresses are written to deployments/<chain id>.json for the Seed script and the services.
 contract Deploy is Script {
     uint256 constant AUCTION_DURATION = 50;
     uint256 constant MAX_BONUS_BPS = 1000;
@@ -68,7 +68,7 @@ contract Deploy is Script {
         console2.log("pool (proxy)", address(pool));
         console2.log("settlement  ", address(settlement));
         console2.log("oracle      ", address(oracle));
-        console2.log("Advance chain time by the twap window before seeding, see script/local.sh");
+        console2.log("Let the twap window pass before seeding: script/local.sh on anvil, script/sepolia.sh elsewhere");
     }
 
     function _deployPool(MockERC20 stablecoin, OracleAdapter oracle) internal returns (VigilPool) {
@@ -141,6 +141,6 @@ contract Deploy is Script {
         vm.serializeAddress(json, "eightDecimalTokenFeed", address(eightDecimals.feed));
         string memory output = vm.serializeAddress(json, "eightDecimalTokenAmm", address(eightDecimals.amm));
 
-        vm.writeJson(output, "./deployments/anvil.json");
+        vm.writeJson(output, string.concat("./deployments/", vm.toString(block.chainid), ".json"));
     }
 }

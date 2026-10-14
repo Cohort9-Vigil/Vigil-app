@@ -8,19 +8,23 @@ import {VigilPool} from "../src/core/VigilPool.sol";
 import {MockERC20} from "../src/mocks/MockERC20.sol";
 import {IOracleAdapter} from "../src/interfaces/IOracleAdapter.sol";
 
-/// @notice Funds a lender and a liquidator, then opens 100 borrower positions spread over the three collateral
-/// assets with health factors between 1.05 and 1.6. Run it after Deploy, once chain time has passed the TWAP window.
+/// @notice Funds a lender and a liquidator, then opens borrower positions spread over the three collateral assets
+/// with health factors between 1.05 and 1.6. Run it after Deploy, once chain time has passed the TWAP window.
+/// @dev Local anvil gets 100 borrowers with 0.05 ETH of gas money each. Other networks get 10 borrowers and
+/// 0.002 ETH each so a faucet is enough. Override with the BORROWERS and GAS_MONEY environment variables.
 contract Seed is Script {
     using stdJson for string;
 
-    uint256 constant BORROWERS = 100;
+    uint256 constant ANVIL_CHAIN_ID = 31337;
     uint256 constant MIN_HEALTH_FACTOR = 1.05e18;
     uint256 constant HEALTH_FACTOR_SPREAD = 0.55e18;
     uint256 constant COLLATERAL_VALUE_USD = 10_000;
     uint256 constant LIQUIDITY_USD = 5_000_000;
     uint256 constant LIQUIDATOR_USD = 1_000_000;
     uint256 constant THRESHOLD_BPS = 8000;
-    uint256 constant GAS_MONEY = 0.05 ether;
+
+    uint256 borrowers;
+    uint256 gasMoney;
 
     VigilPool pool;
     MockERC20 stablecoin;
@@ -28,7 +32,11 @@ contract Seed is Script {
     uint256[3] pricesUsd = [uint256(100), 50, 20_000];
 
     function run() external {
-        string memory json = vm.readFile("./deployments/anvil.json");
+        bool local = block.chainid == ANVIL_CHAIN_ID;
+        borrowers = vm.envOr("BORROWERS", local ? uint256(100) : uint256(10));
+        gasMoney = vm.envOr("GAS_MONEY", local ? 0.05 ether : 0.002 ether);
+
+        string memory json = vm.readFile(string.concat("./deployments/", vm.toString(block.chainid), ".json"));
         pool = VigilPool(json.readAddress(".pool"));
         stablecoin = MockERC20(json.readAddress(".stablecoin"));
         collateral[0] = MockERC20(json.readAddress(".feeToken"));
@@ -37,17 +45,20 @@ contract Seed is Script {
         address settlement = json.readAddress(".settlement");
 
         IOracleAdapter oracle = IOracleAdapter(json.readAddress(".oracle"));
-        require(oracle.state() == IOracleAdapter.State.Normal, "oracle is frozen, advance chain time first");
+        require(
+            oracle.state() == IOracleAdapter.State.Normal,
+            "oracle is frozen, wait out the twap window and refresh the feeds"
+        );
 
         vm.startBroadcast();
         _fundLenderAndLiquidator(settlement);
         vm.stopBroadcast();
 
-        for (uint256 i = 0; i < BORROWERS; i++) {
+        for (uint256 i = 0; i < borrowers; i++) {
             _openBorrower(i);
         }
 
-        console2.log("borrowers seeded", BORROWERS);
+        console2.log("borrowers seeded", borrowers);
     }
 
     function _fundLenderAndLiquidator(address settlement) internal {
@@ -71,7 +82,7 @@ contract Seed is Script {
         uint256 healthFactor = MIN_HEALTH_FACTOR + uint256(keccak256(abi.encode("hf", index))) % HEALTH_FACTOR_SPREAD;
 
         vm.startBroadcast();
-        payable(borrower).transfer(GAS_MONEY);
+        payable(borrower).transfer(gasMoney);
         token.mint(borrower, amount);
         vm.stopBroadcast();
 

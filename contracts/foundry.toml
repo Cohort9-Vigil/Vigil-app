@@ -6,6 +6,9 @@ solc = "0.8.24"
 evm_version = "cancun"
 fs_permissions = [{ access = "read-write", path = "./deployments" }]
 
+[rpc_endpoints]
+sepolia = "${SEPOLIA_RPC_URL}"
+
 [invariant]
 runs = 256
 depth = 100
