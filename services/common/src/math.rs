@@ -8,7 +8,7 @@ pub const HALF_RAY: u128 = RAY / 2;
 
 /// Multiplies two WAD numbers rounding down.
 pub fn wad_mul(a: u128, b: u128) -> u128 {
-    (a as u128 * b as u128) / WAD
+    (a * b) / WAD
 }
 
 /// Multiplies two WAD numbers rounding up (used for debt calculations).
@@ -17,7 +17,7 @@ pub fn wad_mul_up(a: u128, b: u128) -> u128 {
     if product == 0 {
         0
     } else {
-        (product + WAD - 1) / WAD
+        product.div_ceil(WAD)
     }
 }
 
@@ -34,7 +34,7 @@ pub fn wad_div_up(a: u128, b: u128) -> u128 {
     if numerator == 0 {
         0
     } else {
-        (numerator + b - 1) / b
+        numerator.div_ceil(b)
     }
 }
 
