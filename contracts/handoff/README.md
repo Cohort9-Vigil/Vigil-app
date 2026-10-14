@@ -1,17 +1,44 @@
 # Vigil contracts: frontend handoff
 
-ABIs in `abi/` were exported from commit `04624ee` (branch `feat/contracts-core`). Regenerate them whenever a contract's public functions, events or errors change:
+ABIs in `abi/` match the contracts deployed on Sepolia (branch `feat/contracts-core`). Regenerate them whenever a contract's public functions, events or errors change:
 
 ```
 forge build
 forge inspect VigilPool abi --json > handoff/abi/VigilPool.json
 ```
 
-## Status
+## Network and addresses
 
-- Addresses are in `../deployments/anvil.json`, written by `script/Deploy.s.sol`. To get a local system with 100 seeded positions, start `anvil` and run `script/local.sh`. On a fresh anvil the addresses come out the same every time.
-- Chain is anvil, chain id 31337.
-- The contracts are covered by unit, fuzz, invariant and attack tests, but nothing has been run against a UI yet.
+Deployed and verified on **Ethereum Sepolia**, chain id **11155111**. Browse any address at `https://sepolia.etherscan.io/address/<address>`. Use your own RPC URL, the team's RPC key is private. The full list is in `../deployments/11155111.json`.
+
+What the frontend needs:
+
+| What | Address | Use |
+|---|---|---|
+| **Pool (proxy)** | `0xecF5622D592293c960bFec2A948dF9e8B1323358` | every user action and read, with `VigilPool.json` |
+| **Liquidation settlement** | `0x488eB39f40D0E808dC0e5533697A18b3c0f3787B` | auctions and liquidations, with `LiquidationSettlement.json` |
+| **Oracle** | `0xAc134af348f29cdb174701E766C3959eA68dd649` | read `state()` and `getPrice()`, with `OracleAdapter.json` |
+| vUSD (stablecoin, 6 decimals) | `0xA0C8B0582B47D2b561Fca63d5458D0E12a0F4d7f` | supply, borrow, repay |
+| vFEE (collateral, 18 decimals, 2% fee on transfer) | `0x91A9CA0Ad8f2306764ED2E04C9CD45287691e5DF` | collateral |
+| vSIX (collateral, 6 decimals) | `0xfA1077D9f3A0D098b2827cAa6D4f2D01B31545E3` | collateral |
+| vEIGHT (collateral, 8 decimals) | `0x2E301949D27B925FF5d166c3c6573bd6F28ab2ff` | collateral |
+
+Always call the **proxy**, never the implementation. Not needed by the UI: the price feeds, the AMMs, the pool implementation and the deployer account.
+
+Prices when deployed: vUSD $1, vFEE $100, vSIX $50, vEIGHT $20,000.
+
+## Getting test tokens
+
+The tokens are mocks and anyone can mint them. Call `mint(address to, uint256 amount)` on a token to give yourself some, in that token's own decimals (for example `1000e6` for 1,000 vUSD). `IERC20.json` does not include `mint`, add it to the token ABI. Gas needs Sepolia ETH from a faucet.
+
+## Things to know
+
+- **The oracle can freeze on its own.** The mock price feeds go stale after 24 hours without an update, and the oracle then reports Frozen (only repay and add collateral work). The team re-posts prices with `script/refresh-feeds.sh`. If the UI shows Frozen, that is probably the reason.
+- **Prices are set by hand.** Anyone with the owner key can change a mock feed price, so a price drop is a demo action, not a market event.
+- **The pool starts with 10 seeded borrowers** and 5,000,000 vUSD of liquidity, so there is something to look at on day one.
+- **An auction lasts about 10 minutes.** The bonus grows over 50 blocks and Sepolia blocks take 12 seconds.
+- Chain is Sepolia only. The old local anvil addresses (chain id 31337) in `../deployments/31337.json` do not exist on any real network.
+- Nothing has been run against a UI yet, so expect small changes once integration starts.
 
 ## Files
 
