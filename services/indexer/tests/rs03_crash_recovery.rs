@@ -125,7 +125,7 @@ fn call_cast_send(rpc_url: &str, to: &str, sig: &str, args: &[&str]) {
 async fn test_rs03_kill_and_restart_resumes_without_gaps() {
     let anvil = AnvilRunner::spawn();
     // Block 1: Deployment of VigilPool
-    let pool_address = deploy_contract(&anvil.rpc_url, "../../contracts/out/VigilPool.sol/VigilPool.json");
+    let pool_address = deploy_contract(&anvil.rpc_url, "../../contracts/out/EventEmitterPool.sol/EventEmitterPool.json");
 
     let user = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
     let asset = "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC";
@@ -206,7 +206,7 @@ async fn test_rs03_kill_and_restart_resumes_without_gaps() {
 async fn test_rs03_crash_after_nats_publish_before_postgres_commit() {
     let anvil = AnvilRunner::spawn();
     // Block 1: Deployment
-    let pool_address = deploy_contract(&anvil.rpc_url, "../../contracts/out/VigilPool.sol/VigilPool.json");
+    let pool_address = deploy_contract(&anvil.rpc_url, "../../contracts/out/EventEmitterPool.sol/EventEmitterPool.json");
 
     let user = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
     let asset = "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC";
