@@ -1,10 +1,8 @@
-//! Vigil Common Crate
-//! Shared fixed-point math, core data types, event schemas, and NATS message structures.
+//! Shared math, model, messages and bindings for the Vigil services.
 
-pub mod events;
+pub mod config;
+pub mod contracts;
 pub mod math;
-pub mod types;
-
-pub use events::*;
-pub use math::*;
-pub use types::*;
+pub mod messages;
+pub mod model;
+pub mod telemetry;
