@@ -1,4 +1,4 @@
-//! Block listener, gap recovery, and hash-based log ingestion (RS-01).
+//! Block listener, gap recovery, and hash-based log ingestion (RS-01, RS-03, RS-04).
 //!
 //! Enforces:
 //! 1. Never trust WebSocket newHeads blindly: treat as hints and actively backfill gaps.
@@ -12,43 +12,90 @@ use common::events::{IndexedEvent, RetractEvent};
 use tracing::{debug, info, warn};
 
 use crate::abi::decode_log;
+use crate::cursor::{CursorStore, MockCursorStore};
 use crate::publisher::EventPublisher;
 use crate::reorg::{BlockEvaluation, ReorgRingBuffer};
+use crate::telemetry::Metrics;
 
-/// Ingestion engine coordinating block listening, reorg protection, and log decoding.
-pub struct BlockIngestor<P, E> {
+/// Ingestion engine coordinating block listening, reorg protection, log decoding,
+/// at-least-once cursor persistence, and telemetry metrics.
+pub struct BlockIngestor<P, E, C = MockCursorStore> {
     pub provider: P,
     pub publisher: E,
+    pub cursor_store: C,
     pub ring: ReorgRingBuffer,
     pub last_processed_block: Option<u64>,
+    pub metrics: Metrics,
 }
 
-impl<E: EventPublisher> BlockIngestor<(), E> {
+impl<E: EventPublisher> BlockIngestor<(), E, MockCursorStore> {
     pub fn connect_http(
         rpc_url: &str,
         publisher: E,
         ring_capacity: usize,
-    ) -> Result<BlockIngestor<impl Provider + Clone + 'static, E>> {
+    ) -> Result<BlockIngestor<impl Provider + Clone + 'static, E, MockCursorStore>> {
         let url: url::Url = rpc_url.parse().map_err(|e| anyhow!("Invalid RPC URL: {e}"))?;
         let provider = alloy::providers::ProviderBuilder::new().connect_http(url);
         Ok(BlockIngestor::new(provider, publisher, ring_capacity))
     }
 }
 
-impl<P: Provider + Clone + 'static, E: EventPublisher> BlockIngestor<P, E> {
+impl<P: Provider + Clone + 'static, E: EventPublisher> BlockIngestor<P, E, MockCursorStore> {
     pub fn new(provider: P, publisher: E, ring_capacity: usize) -> Self {
         Self {
             provider,
             publisher,
+            cursor_store: MockCursorStore::new(),
             ring: ReorgRingBuffer::new(ring_capacity),
             last_processed_block: None,
+            metrics: Metrics::new(),
         }
+    }
+}
+
+impl<P: Provider + Clone + 'static, E: EventPublisher, C: CursorStore> BlockIngestor<P, E, C> {
+    /// Swaps in a custom cursor persistence store (e.g. PostgresCursorStore).
+    pub fn with_cursor_store<C2: CursorStore>(self, cursor_store: C2) -> BlockIngestor<P, E, C2> {
+        BlockIngestor {
+            provider: self.provider,
+            publisher: self.publisher,
+            cursor_store,
+            ring: self.ring,
+            last_processed_block: self.last_processed_block,
+            metrics: self.metrics,
+        }
+    }
+
+    /// Attaches shared metrics.
+    pub fn with_metrics(mut self, metrics: Metrics) -> Self {
+        self.metrics = metrics;
+        self
     }
 
     /// Sets an initial starting cursor (e.g. loaded from Postgres on startup).
     pub fn with_initial_cursor(mut self, last_block: u64) -> Self {
         self.last_processed_block = Some(last_block);
+        self.metrics.set_last_block(last_block);
         self
+    }
+
+    /// Recovers state from the cursor store on boot (RS-03):
+    /// Loads the latest saved cursor and recent block window into the reorg ring buffer.
+    pub async fn recover_from_cursor_store(&mut self, window_capacity: usize) -> Result<Option<u64>> {
+        if let Some((last_num, last_hash)) = self.cursor_store.get_last_cursor().await? {
+            info!(last_num, %last_hash, "Recovered indexer cursor from persistence store");
+            self.last_processed_block = Some(last_num);
+            self.metrics.set_last_block(last_num);
+
+            let recent = self.cursor_store.load_recent_window(window_capacity).await?;
+            for rec in recent {
+                self.ring.push_block(rec.block_number, rec.block_hash, rec.parent_hash, Vec::new());
+            }
+            Ok(Some(last_num))
+        } else {
+            info!("No previous cursor found in persistence store; starting fresh");
+            Ok(None)
+        }
     }
 
     /// Ingests a new head block number as a hint (Rule 1).
@@ -154,6 +201,13 @@ impl<P: Provider + Clone + 'static, E: EventPublisher> BlockIngestor<P, E> {
                     self.publisher.publish_retract_event(retract).await?;
                 }
 
+                // Update telemetry metrics for reorg
+                self.metrics.inc_reorgs();
+                self.metrics.inc_retractions(retractions.len() as u64);
+
+                // Mark reorged blocks in cursor store
+                self.cursor_store.mark_reorged(ancestor_num + 1, block_number - 1).await?;
+
                 retractions_emitted = retractions;
                 let mut intermediate_events = Vec::new();
                 // Re-ingest the intermediate canonical blocks from (ancestor + 1) up to (block_number - 1)
@@ -220,12 +274,15 @@ impl<P: Provider + Clone + 'static, E: EventPublisher> BlockIngestor<P, E> {
             }
         }
 
-        // Publish to NATS JetStream (Rule 3)
+        // 1. Publish to NATS JetStream and await ack (Rule 3)
         for evt in &emitted_events {
             self.publisher.publish_indexed_event(evt).await?;
         }
 
-        // Record in 10-block sliding window
+        // 2. Commit cursor to Postgres ONLY AFTER NATS ack (Rule 3 & RS-03)
+        self.cursor_store.commit_block(block_number, block_hash, parent_hash, block_timestamp).await?;
+
+        // 3. Record in 10-block sliding window
         self.ring.push_block(
             block_number,
             block_hash.to_string(),
@@ -233,8 +290,10 @@ impl<P: Provider + Clone + 'static, E: EventPublisher> BlockIngestor<P, E> {
             emitted_events.clone(),
         );
 
-        // Update cursor
+        // 4. Update in-memory cursor and telemetry metrics
         self.last_processed_block = Some(block_number);
+        self.metrics.set_last_block(block_number);
+        self.metrics.inc_events(emitted_events.len() as u64);
 
         Ok((Vec::new(), emitted_events))
     }
