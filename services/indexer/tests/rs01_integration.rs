@@ -200,12 +200,10 @@ async fn test_rs01_live_anvil_ingestion_and_decoding() {
                     found_borrow = true;
                 }
             }
-            ChainEvent::PriceUpdated(p) => {
-                if p.asset.0.eq_ignore_ascii_case(asset1) {
-                    assert_eq!(p.price_wad, 2_500_000_000_000_000_000);
-                    assert_eq!(p.timestamp, 1700000100);
-                    found_price = true;
-                }
+            ChainEvent::PriceUpdated(p) if p.asset.0.eq_ignore_ascii_case(asset1) => {
+                assert_eq!(p.price_wad, 2_500_000_000_000_000_000);
+                assert_eq!(p.timestamp, 1700000100);
+                found_price = true;
             }
             _ => {}
         }

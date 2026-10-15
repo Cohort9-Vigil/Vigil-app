@@ -39,10 +39,22 @@ services:
 
   indexer:
     build:
-      context: .
-      dockerfile: services/Dockerfile
-      args:
-        BIN: vigil-indexer
+      context: ./services
+      dockerfile: Dockerfile.indexer
+    container_name: vigil-indexer
+    environment:
+      RPC_URL: "http://anvil:8545"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-vigil}"
+      NATS_URL: "nats://nats:4222"
+      RUST_LOG: "info,indexer=debug"
+      METRICS_PORT: "8080"
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/health || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
     depends_on:
       postgres:
         condition: service_healthy
