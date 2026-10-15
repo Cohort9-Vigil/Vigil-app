@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: vigil-web
+    runtime: static
+    rootDir: web
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /markets
+        destination: /markets.html
+      - type: rewrite
+        source: /live
+        destination: /live.html
