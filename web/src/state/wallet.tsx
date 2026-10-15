@@ -1,7 +1,10 @@
 // Dedicated Web3 Wallet State and Connection Provider for Vigil Protocol on Ethereum Sepolia.
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { ethers } from "ethers";
-import { provider, RPC_URL } from "../lib/chain.ts";
+import { provider, RPC_URL, getInjectedProvider } from "../lib/chain.ts";
+import { useToast } from "./toasts.tsx";
+import { short } from "../lib/format.ts";
+import { ConnectWalletModal } from "../components/ConnectWalletModal.tsx";
 
 export const SEPOLIA_CHAIN_ID = 11155111;
 export const SEPOLIA_HEX = "0xaa36a7";
@@ -15,6 +18,9 @@ export interface WalletContextType {
   ethBalance: string | null;
   error: string | null;
   isDemoMode: boolean;
+  showModal: boolean;
+  openModal: () => void;
+  closeModal: () => void;
   connect: () => Promise<void>;
   disconnect: () => void;
   switchNetwork: () => Promise<boolean>;
@@ -34,8 +40,42 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const [ethBalance, setEthBalance] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isDemoMode, setIsDemoMode] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const [hasInjected, setHasInjected] = useState(() => Boolean(getInjectedProvider()));
 
-  const hasInjected = typeof window !== "undefined" && Boolean((window as unknown as { ethereum?: unknown }).ethereum);
+  const toast = useToast();
+
+  // Dynamically check and monitor for injected Web3 provider (MetaMask / EIP-6963)
+  useEffect(() => {
+    const detect = () => {
+      const p = getInjectedProvider();
+      const detected = Boolean(p);
+      setHasInjected(detected);
+      return detected;
+    };
+
+    detect();
+
+    // Listen to standard extension initialization events
+    const onInit = () => detect();
+    window.addEventListener("ethereum#initialized", onInit, { once: true });
+    window.addEventListener("eip6963:announceProvider", onInit);
+
+    // Poll for up to 3 seconds for asynchronous script injection
+    let attempts = 0;
+    const poller = setInterval(() => {
+      attempts++;
+      if (detect() || attempts > 15) {
+        clearInterval(poller);
+      }
+    }, 200);
+
+    return () => {
+      window.removeEventListener("ethereum#initialized", onInit);
+      window.removeEventListener("eip6963:announceProvider", onInit);
+      clearInterval(poller);
+    };
+  }, []);
 
   // Fetch native Sepolia ETH balance for the active account
   const refreshBalance = useCallback(async (addr: string) => {
@@ -49,8 +89,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
   // Switch or prompt to add Sepolia network
   const switchNetwork = useCallback(async (): Promise<boolean> => {
-    if (!hasInjected) return false;
-    const eth = (window as unknown as { ethereum: { request: (args: unknown) => Promise<unknown> } }).ethereum;
+    const eth = getInjectedProvider();
+    if (!eth) return false;
     try {
       await eth.request({
         method: "wallet_switchEthereumChain",
@@ -80,18 +120,25 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       }
       return false;
     }
-  }, [hasInjected]);
+  }, []);
 
   // Connect to MetaMask or injected Web3 wallet
   const connect = useCallback(async () => {
     setError(null);
-    if (!hasInjected) {
-      setError("No Web3 wallet detected. Please install MetaMask or use Explore Address mode.");
+    const eth = getInjectedProvider();
+    if (!eth) {
+      setShowModal(true);
+      setError("No Web3 wallet detected in your browser. Install MetaMask or explore with our demo account.");
+      toast.push(
+        "No Web3 Wallet Detected",
+        "Please install MetaMask or explore with our Sepolia demo account.",
+        "error"
+      );
       return;
     }
+
     setIsConnecting(true);
     try {
-      const eth = (window as unknown as { ethereum: { request: (args: unknown) => Promise<unknown> } }).ethereum;
       const accounts = (await eth.request({ method: "eth_requestAccounts" })) as string[];
       if (!accounts || accounts.length === 0) {
         throw new Error("No accounts selected in wallet.");
@@ -101,7 +148,11 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       setChainId(currentChain);
 
       if (currentChain !== SEPOLIA_CHAIN_ID) {
-        await switchNetwork();
+        toast.push("Switching Network", "Please approve switching to Sepolia in your wallet.", "busy");
+        const switched = await switchNetwork();
+        if (switched) {
+          toast.push("Network Switched", "Connected to Ethereum Sepolia.", "good");
+        }
         const updatedChain = (await eth.request({ method: "eth_chainId" })) as string;
         setChainId(parseInt(updatedChain, 16));
       }
@@ -109,16 +160,28 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       const activeAccount = accounts[0].toLowerCase();
       setAccount(activeAccount);
       setIsDemoMode(false);
+      setShowModal(false);
       localStorage.setItem(STORAGE_KEY, "true");
       localStorage.removeItem(DEMO_KEY);
       await refreshBalance(activeAccount);
+      toast.push("Wallet Connected", `Connected to ${short(activeAccount)} on Sepolia`, "good");
     } catch (err: unknown) {
-      const msg = (err as { message?: string })?.message ?? "Failed to connect wallet";
+      const errObj = err as { code?: number; message?: string };
+      let msg = errObj?.message ?? "Failed to connect wallet";
+      if (errObj?.code === 4001) {
+        msg = "Connection request was cancelled in your wallet.";
+        toast.push("Connection Cancelled", msg, "error");
+      } else if (errObj?.code === -32002) {
+        msg = "MetaMask approval is already pending. Please click the MetaMask extension icon in your browser toolbar to approve.";
+        toast.push("Approval Pending", msg, "busy");
+      } else {
+        toast.push("Connection Failed", msg, "error");
+      }
       setError(msg);
     } finally {
       setIsConnecting(false);
     }
-  }, [hasInjected, switchNetwork, refreshBalance]);
+  }, [switchNetwork, refreshBalance, toast]);
 
   const disconnect = useCallback(() => {
     setAccount(null);
@@ -126,21 +189,25 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     setIsDemoMode(false);
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(DEMO_KEY);
-  }, []);
+    toast.push("Wallet Disconnected", "Disconnected from Vigil Protocol.", "good");
+  }, [toast]);
 
   // Inspect any address in read-only mode without needing a wallet
   const inspectAddress = useCallback((addr: string) => {
     const trimmed = addr.trim().toLowerCase();
     if (!ethers.isAddress(trimmed)) {
       setError("Invalid Ethereum address");
+      toast.push("Invalid Address", "Please provide a valid 0x Ethereum address.", "error");
       return;
     }
     setAccount(trimmed);
     setIsDemoMode(true);
     setError(null);
+    setShowModal(false);
     localStorage.setItem(DEMO_KEY, trimmed);
     refreshBalance(trimmed);
-  }, [refreshBalance]);
+    toast.push("Inspecting Address", `Loaded ${short(trimmed)} in read-only mode.`, "good");
+  }, [refreshBalance, toast]);
 
   // Auto-connect on page load if previously connected or if demo address was saved
   useEffect(() => {
@@ -152,14 +219,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    if (!hasInjected) return;
-    const eth = (window as unknown as {
-      ethereum: {
-        request: (args: unknown) => Promise<unknown>;
-        on?: (event: string, handler: (...args: unknown[]) => void) => void;
-        removeListener?: (event: string, handler: (...args: unknown[]) => void) => void;
-      };
-    }).ethereum;
+    const eth = getInjectedProvider();
+    if (!eth) return;
 
     const wasConnected = localStorage.getItem(STORAGE_KEY) === "true";
     if (wasConnected) {
@@ -217,6 +278,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         ethBalance,
         error,
         isDemoMode,
+        showModal,
+        openModal: () => setShowModal(true),
+        closeModal: () => setShowModal(false),
         connect,
         disconnect,
         switchNetwork,
@@ -225,6 +289,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       }}
     >
       {children}
+      <ConnectWalletModal />
     </WalletContext.Provider>
   );
 }

@@ -17,8 +17,6 @@ export function Header(props: {
   const { active, connected, chain, accounts, selected, onSelect, onMintFaucet } = props;
   const wallet = useWallet();
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [inspectModalOpen, setInspectModalOpen] = useState(false);
-  const [inspectInput, setInspectInput] = useState("");
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const activeAddress = wallet.account || selected || "";
@@ -149,7 +147,7 @@ export function Header(props: {
                       className="dropdown-action-btn"
                       onClick={() => {
                         setDropdownOpen(false);
-                        setInspectModalOpen(true);
+                        wallet.openModal();
                       }}
                     >
                       🔍 Inspect Another Address
@@ -185,7 +183,7 @@ export function Header(props: {
               <button
                 className="btn-inspect-quick"
                 title="Explore any address in read-only mode"
-                onClick={() => setInspectModalOpen(true)}
+                onClick={() => wallet.openModal()}
               >
                 Inspect
               </button>
@@ -213,44 +211,6 @@ export function Header(props: {
 
         <ThemeButton />
       </div>
-
-      {/* Inspect Address Modal */}
-      {inspectModalOpen && (
-        <div className="modal-backdrop" onClick={() => setInspectModalOpen(false)}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-title">Inspect Address (Read-Only)</div>
-            <p className="modal-desc">
-              View real-time loan positions, collateral deposits, and health factors for any Ethereum address on Sepolia.
-            </p>
-            <input
-              type="text"
-              placeholder="0x..."
-              className="modal-input"
-              value={inspectInput}
-              onChange={(e) => setInspectInput(e.target.value)}
-              autoFocus
-            />
-            <div className="modal-actions">
-              <button className="btn-modal-cancel" onClick={() => setInspectModalOpen(false)}>
-                Cancel
-              </button>
-              <button
-                className="btn-modal-confirm"
-                onClick={() => {
-                  if (inspectInput.trim()) {
-                    wallet.inspectAddress(inspectInput.trim());
-                    if (onSelect) onSelect(inspectInput.trim());
-                    setInspectModalOpen(false);
-                    setInspectInput("");
-                  }
-                }}
-              >
-                Inspect Address
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </header>
   );
 }

@@ -4,12 +4,14 @@ import { useProtocolOnce, useConfig } from "../state/hooks.ts";
 import { computeMarket } from "../lib/rates.ts";
 import { fmt, short } from "../lib/format.ts";
 import { useStream } from "../state/stream.tsx";
+import { useWallet } from "../state/wallet.tsx";
 import { ThemeButton } from "../components/ThemeButton.tsx";
 
 export function LandingPage() {
   const chain = useProtocolOnce();
   const config = useConfig();
   const stream = useStream();
+  const wallet = useWallet();
   const [, setLive] = useState<{ head: number } | null>(null);
 
   useEffect(() => {
@@ -75,6 +77,28 @@ export function LandingPage() {
               {stream.connected ? `Sepolia #${block}` : "Syncing RPC…"}
             </span>
             <ThemeButton />
+            {wallet.account ? (
+              <a className="btn-wallet-connected-landing" href="markets.html" title={wallet.account}>
+                <span className="chain-dot-ok" />
+                {wallet.ethBalance && <span className="wallet-eth-bal">{wallet.ethBalance} ETH</span>}
+                <span className="wallet-addr-text">
+                  {wallet.isDemoMode ? "Inspect: " : ""}
+                  {short(wallet.account)}
+                </span>
+              </a>
+            ) : (
+              <button
+                className="btn-connect-wallet-landing"
+                onClick={() => wallet.connect()}
+                disabled={wallet.isConnecting}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="2" y="4" width="20" height="16" rx="4" />
+                  <circle cx="17" cy="12" r="2" />
+                </svg>
+                <span>{wallet.isConnecting ? "Connecting…" : "Connect Wallet"}</span>
+              </button>
+            )}
             <a className="btn-launch" href="markets.html">
               Launch App ↗
             </a>
@@ -103,6 +127,11 @@ export function LandingPage() {
               <a className="btn-primary-large" href="markets.html">
                 ⚡ Open Markets & Borrow
               </a>
+              {!wallet.account && (
+                <button className="btn-secondary-large" onClick={() => wallet.connect()}>
+                  👛 Connect Wallet
+                </button>
+              )}
               <a className="btn-secondary-large" href="live.html">
                 📡 Inspect Live Event Stream
               </a>

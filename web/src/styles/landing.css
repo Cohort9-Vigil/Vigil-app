@@ -92,6 +92,42 @@
 .btn-launch:hover {
   background: var(--primary-hover);
 }
+.btn-connect-wallet-landing {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  font-size: 13.5px;
+  font-weight: 600;
+  padding: 7px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-connect-wallet-landing:hover {
+  background: var(--primary-soft);
+  color: var(--accent);
+  border-color: var(--primary);
+}
+.btn-wallet-connected-landing {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 999px;
+  text-decoration: none;
+  transition: all 0.15s;
+}
+.btn-wallet-connected-landing:hover {
+  border-color: var(--primary);
+}
 
 /* Hero Section */
 .landing-hero {

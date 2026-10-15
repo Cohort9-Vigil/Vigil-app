@@ -46,11 +46,27 @@ export const INTENT_TYPES = {
   ],
 };
 
+// Safely returns the active injected EIP-1193 Web3 provider (e.g. MetaMask).
+// Handles multiple wallet extensions (MetaMask, Coinbase, Phantom, etc.) by prioritizing MetaMask.
+export function getInjectedProvider(): (ethers.Eip1193Provider & { request: (args: unknown) => Promise<unknown>; on?: (event: string, handler: (...args: unknown[]) => void) => void; removeListener?: (event: string, handler: (...args: unknown[]) => void) => void; isMetaMask?: boolean }) | null {
+  if (typeof window === "undefined") return null;
+  const w = window as unknown as {
+    ethereum?: any;
+  };
+  if (!w.ethereum) return null;
+  if (Array.isArray(w.ethereum.providers) && w.ethereum.providers.length > 0) {
+    const mm = w.ethereum.providers.find((p: any) => p?.isMetaMask);
+    return (mm || w.ethereum.providers[0]) as any;
+  }
+  return w.ethereum as any;
+}
+
 // Returns a signer for transactions. If a browser wallet (e.g. MetaMask) is connected,
 // it uses the browser provider; otherwise falls back to the RPC provider.
 export async function getSigner(from?: string): Promise<ethers.Signer> {
-  if (typeof window !== "undefined" && (window as unknown as { ethereum?: unknown }).ethereum) {
-    const browser = new ethers.BrowserProvider((window as unknown as { ethereum: ethers.Eip1193Provider }).ethereum);
+  const injected = getInjectedProvider();
+  if (injected) {
+    const browser = new ethers.BrowserProvider(injected);
     return await browser.getSigner(from);
   }
   return await provider.getSigner(from);
