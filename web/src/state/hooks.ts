@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ethers } from "ethers";
 import { fetchAccount, fetchConfig, fetchIntents } from "../lib/api.ts";
+import { DEFAULT_CONFIG } from "../lib/defaultConfig.ts";
 import { provider, TOKEN_ABI, POOL_ABI, SETTLEMENT_ABI } from "../lib/chain.ts";
 import type { AccountView, Config, IntentRow } from "../lib/types.ts";
 import { fetchProtocol } from "../lib/api.ts";
@@ -17,9 +18,9 @@ export interface Contracts {
 
 // Loads the deployment config once and builds the contract objects.
 export function useConfig(): Config | null {
-  const [config, setConfig] = useState<Config | null>(null);
+  const [config, setConfig] = useState<Config | null>(DEFAULT_CONFIG);
   useEffect(() => {
-    fetchConfig().then(setConfig).catch(() => setConfig(null));
+    fetchConfig().then(setConfig).catch(() => setConfig(DEFAULT_CONFIG));
   }, []);
   return config;
 }
