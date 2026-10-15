@@ -1,7 +1,7 @@
 // The things a user can do on the page. Each one checks the numbers first, then sends the transaction.
 // The UI shows the messages these functions throw.
 import { ethers } from "ethers";
-import { approveIfNeeded, MAX_UINT, parseAmount, sendTransaction } from "./chain.ts";
+import { approveIfNeeded, MAX_UINT, parseAmount, sendTransaction, MOCK_FEED_ABI, provider } from "./chain.ts";
 import { fetchAccount } from "./api.ts";
 import { borrowCapacity, calculatePosition, maxWithdrawable, type Position } from "./position.ts";
 import { fmt } from "./format.ts";
@@ -132,6 +132,50 @@ export async function repayAllAndReturn(
 // Builds the position for a fresh account read. Used by the repay-all flow.
 export function positionFor(view: AccountView, fallbackDebtPrice: bigint): Position {
   return calculatePosition(view, fallbackDebtPrice);
+}
+
+// Unfreezes the testnet oracle by refreshing timestamps on the mock price feeds on Sepolia
+export async function unfreezeOracleFeeds(
+  ctx: ActionContext,
+  step?: (text: string) => () => void,
+): Promise<string> {
+  const { who, contracts } = ctx;
+  const feeds: { name: string; address: string; fallbackAnswer: bigint }[] = [
+    {
+      name: "vUSD",
+      address: contracts.config.debtFeed || "0x8E6ca1c742E173de3187f8a78b24Cb4EF603A1eB",
+      fallbackAnswer: 100000000n,
+    },
+  ];
+  for (const c of contracts.config.collaterals) {
+    if (c.feed) {
+      const fallback = c.name.toLowerCase().includes("fee")
+        ? 10000000000n
+        : c.name.toLowerCase().includes("six")
+        ? 5000000000n
+        : 2000000000000n;
+      feeds.push({ name: c.name, address: c.feed, fallbackAnswer: fallback });
+    }
+  }
+
+  for (const f of feeds) {
+    const done = step ? step(`Refreshing ${f.name} price feed`) : () => {};
+    const feedContract = new ethers.Contract(f.address, MOCK_FEED_ABI, provider);
+    let answerToSet = f.fallbackAnswer;
+    try {
+      const current = await feedContract.answer();
+      if (current && current > 0n) {
+        answerToSet = BigInt(current);
+      }
+    } catch {
+      // fallback
+    }
+    await sendTransaction(who, feedContract, "setAnswer", [answerToSet]);
+    done();
+  }
+
+  await ctx.reload();
+  return "All price feeds updated. Oracle is now active and borrowing is unpaused!";
 }
 
 export type { Config };

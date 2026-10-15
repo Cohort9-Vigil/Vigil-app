@@ -6,7 +6,7 @@ import { marketFrom } from "../lib/market.ts";
 import { fmt, short } from "../lib/format.ts";
 import * as actions from "../lib/actions.ts";
 import type { ActionContext } from "../lib/actions.ts";
-import { useConfig, useContracts, useAccount, useIntents } from "../state/hooks.ts";
+import { useConfig, useContracts, useAccount, useIntents, useOracleStatus } from "../state/hooks.ts";
 import { useStream } from "../state/stream.tsx";
 import { useToast } from "../state/toasts.tsx";
 import { useWallet } from "../state/wallet.tsx";
@@ -73,6 +73,22 @@ export function MarketsPage() {
   const { account, walletVusd, walletCollateral, reload } = useAccount(contracts, activeAddress);
   const intents = useIntents(contracts, activeAddress);
   const market = marketFrom(stream.chain, config);
+  const { isFrozen: isOracleFrozen, reload: reloadOracle } = useOracleStatus(contracts, stream.chain?.frozen);
+
+  const handleUnfreezeOracle = () => {
+    run("unfreeze", "Unfreeze Price Feeds", async (ctx) => {
+      setSteps([]);
+      const res = await actions.unfreezeOracleFeeds(ctx, (stepText) => {
+        const stepId = Date.now() + Math.random();
+        setSteps((s) => [...s, { id: stepId, text: stepText, done: false }]);
+        return () => {
+          setSteps((s) => s.map((item) => (item.id === stepId ? { ...item, done: true } : item)));
+        };
+      });
+      await reloadOracle();
+      return res;
+    });
+  };
 
   // Position calculation following gateway data
   const position: Position | null = useMemo(() => {
@@ -168,9 +184,29 @@ export function MarketsPage() {
           wallet.inspectAddress(a);
         }}
         onMintFaucet={() => run("mint", "Mint Test Tokens", (ctx) => actions.mintTestTokens(ctx))}
+        isOracleFrozen={isOracleFrozen}
+        onUnfreezeOracle={handleUnfreezeOracle}
       />
 
       <main className="wrap">
+        {/* Testnet Oracle Frozen Warning Banner */}
+        {isOracleFrozen && (
+          <div className="oracle-status-banner">
+            <div className="oracle-status-info">
+              <span className="oracle-status-pill">⚠️ Oracle Stale</span>
+              <div className="oracle-status-text">
+                <b>Sepolia Mock Price Feeds Expired (&gt;24h)</b>: Testnet mock price feeds need updating to resume borrowing and protocol operations.
+              </div>
+            </div>
+            <button
+              className="oracle-status-action-btn"
+              disabled={busy !== null}
+              onClick={handleUnfreezeOracle}
+            >
+              {busy === "unfreeze" ? "⚡ Updating Feeds…" : "⚡ Unfreeze Oracle (Update Feeds)"}
+            </button>
+          </div>
+        )}
         {/* Wallet Connection Onboarding Banner (if disconnected) */}
         {!activeAddress && (
           <div className="onboarding-card">
@@ -416,6 +452,8 @@ export function MarketsPage() {
         messages={messages}
         steps={steps}
         busy={busy}
+        isOracleFrozen={isOracleFrozen}
+        onUnfreezeOracle={handleUnfreezeOracle}
         onTab={(t) => setDialog((d) => ({ ...d, tab: t }))}
         onAsset={(assetIndex) => setDialog((d) => ({ ...d, assetIndex }))}
         onClose={() => setDialog((d) => ({ ...d, open: false }))}

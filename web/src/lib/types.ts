@@ -25,6 +25,8 @@ export interface Config {
   oracle: string;
   debt: string;
   debtDecimals: number;
+  debtFeed?: string;
+  stablecoinFeed?: string;
   reserveFactor: string;
   rates: Rates;
   collaterals: Collateral[];

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ethers } from "ethers";
 import { fetchAccount, fetchConfig, fetchIntents } from "../lib/api.ts";
 import { DEFAULT_CONFIG } from "../lib/defaultConfig.ts";
-import { provider, TOKEN_ABI, POOL_ABI, SETTLEMENT_ABI } from "../lib/chain.ts";
+import { provider, TOKEN_ABI, POOL_ABI, SETTLEMENT_ABI, ORACLE_ABI } from "../lib/chain.ts";
 import type { AccountView, Config, IntentRow } from "../lib/types.ts";
 import { fetchProtocol } from "../lib/api.ts";
 import type { ChainSnapshot } from "../lib/types.ts";
@@ -11,6 +11,7 @@ import type { ChainSnapshot } from "../lib/types.ts";
 export interface Contracts {
   config: Config;
   pool: ethers.Contract;
+  oracle: ethers.Contract;
   settlement?: ethers.Contract;
   debtToken: ethers.Contract;
   tokens: Record<string, ethers.Contract>; // by collateral address (lower case)
@@ -35,6 +36,7 @@ export function useContracts(config: Config | null): Contracts | null {
     return {
       config,
       pool: new ethers.Contract(config.pool, POOL_ABI, provider),
+      oracle: new ethers.Contract(config.oracle, ORACLE_ABI, provider),
       settlement: config.liquidationSettlement
         ? new ethers.Contract(config.liquidationSettlement, SETTLEMENT_ABI, provider)
         : undefined,
@@ -42,6 +44,36 @@ export function useContracts(config: Config | null): Contracts | null {
       tokens,
     };
   }, [config]);
+}
+
+export function useOracleStatus(contracts: Contracts | null, streamFrozen?: boolean) {
+  const [isFrozen, setIsFrozen] = useState<boolean>(streamFrozen ?? false);
+
+  const check = useCallback(async () => {
+    if (!contracts) return;
+    try {
+      const state = await contracts.oracle.state();
+      setIsFrozen(Number(state) !== 0);
+    } catch (err) {
+      if (typeof streamFrozen === "boolean") {
+        setIsFrozen(streamFrozen);
+      }
+    }
+  }, [contracts, streamFrozen]);
+
+  useEffect(() => {
+    if (typeof streamFrozen === "boolean") {
+      setIsFrozen(streamFrozen);
+    }
+  }, [streamFrozen]);
+
+  useEffect(() => {
+    check();
+    const interval = setInterval(check, 6000);
+    return () => clearInterval(interval);
+  }, [check]);
+
+  return { isFrozen, reload: check };
 }
 
 export interface AccountState {

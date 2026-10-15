@@ -33,6 +33,19 @@ export const TOKEN_ABI = [
   "function approve(address spender, uint256 amount) returns (bool)",
   "function mint(address to, uint256 amount)",
 ];
+export const ORACLE_ABI = [
+  "function state() view returns (uint8)",
+  "function getPrice(address asset) view returns (uint256)",
+  "function sources(address asset) view returns (address feed, uint8 feedDecimals, uint32 maxStaleness, uint32 twapWindow, uint16 maxDeviationBps, address twapSource, int128 minAnswer, int128 maxAnswer)",
+];
+export const MOCK_FEED_ABI = [
+  "function answer() view returns (int128)",
+  "function updatedAt() view returns (uint96)",
+  "function decimals() view returns (uint8)",
+  "function latestRoundData() view returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound)",
+  "function setAnswer(int128 newAnswer)",
+  "function setUpdatedAt(uint96 newUpdatedAt)",
+];
 
 // The shape of a liquidation intent. The signature covers exactly these fields.
 export const INTENT_TYPES = {
@@ -115,11 +128,27 @@ export function parseAmount(text: string, decimals: number, allowZero = false): 
 
 // A short, readable reason for a failed transaction.
 export function reasonOf(err: unknown): string {
-  const e = err as { reason?: string; shortMessage?: string; message?: string; info?: { error?: { message?: string } } };
-  const reason = e.reason || e.shortMessage || e.info?.error?.message || e.message || "something went wrong";
-  // A revert usually means the price or the interest moved after we read the numbers.
+  const e = err as any;
+  const reason = e?.reason || e?.shortMessage || e?.info?.error?.message || e?.data?.message || e?.message || "something went wrong";
+  const errStr = String(reason) + " " + JSON.stringify(e || {});
+
+  if (errStr.includes("0x9af506b8") || errStr.includes("OracleFrozen")) {
+    return "Oracle Frozen: Testnet price feeds have not updated in >24h. Please click 'Refresh Price Feeds' to unfreeze borrowing.";
+  }
+  if (errStr.includes("0xcd215006") || errStr.includes("InvalidPrice")) {
+    return "Oracle price feed reported an invalid or stale price.";
+  }
+  if (errStr.includes("InsufficientLiquidity") || errStr.includes("0xbb557f33")) {
+    return "The pool does not have enough liquidity available for this borrow amount.";
+  }
+  if (errStr.includes("HealthFactorTooLow") || errStr.includes("0x48e12d4a")) {
+    return "Borrowing this amount would put your Health Factor below 1.0 (liquidation threshold). Please borrow less or supply more collateral.";
+  }
+  if (errStr.includes("user rejected") || errStr.includes("ACTION_REJECTED") || e?.code === 4001) {
+    return "Transaction was cancelled in your wallet.";
+  }
   if (reason.includes("reverted")) {
-    return "the contract refused it (the price or interest may have moved). Try a slightly smaller amount";
+    return "The smart contract reverted the transaction. Check your collateral balance and borrow capacity.";
   }
   return reason;
 }

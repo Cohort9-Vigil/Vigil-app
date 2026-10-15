@@ -13,8 +13,10 @@ export function Header(props: {
   selected?: string;
   onSelect?: (address: string) => void;
   onMintFaucet?: () => void;
+  isOracleFrozen?: boolean;
+  onUnfreezeOracle?: () => void;
 }) {
-  const { active, connected, chain, accounts, selected, onSelect, onMintFaucet } = props;
+  const { active, connected, chain, accounts, selected, onSelect, onMintFaucet, isOracleFrozen, onUnfreezeOracle } = props;
   const wallet = useWallet();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -71,10 +73,20 @@ export function Header(props: {
 
           <BlockCounter head={chain ? chain.head : null} />
 
-          <div className={`stat-pill ${!chain ? "is-reconnecting" : chain.frozen ? "is-danger" : "is-online"}`} title="Oracle Health Status">
-            <span className="stat-label">Oracle</span>
-            <span className="stat-val">{chain ? (chain.frozen ? "Frozen" : "Normal") : "–"}</span>
-          </div>
+          {(() => {
+            const frozen = Boolean(chain?.frozen || isOracleFrozen);
+            return (
+              <div
+                className={`stat-pill ${!chain && !isOracleFrozen ? "is-reconnecting" : frozen ? "is-danger is-clickable" : "is-online"}`}
+                title={frozen ? "Testnet price feeds stale (>24h). Click to unfreeze oracle feeds." : "Oracle Health Status: Active"}
+                onClick={frozen && onUnfreezeOracle ? onUnfreezeOracle : undefined}
+                style={{ cursor: frozen && onUnfreezeOracle ? "pointer" : "default" }}
+              >
+                <span className="stat-label">Oracle</span>
+                <span className="stat-val">{frozen ? "Frozen ⚡" : "Normal"}</span>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Network & Wallet Controls */}
