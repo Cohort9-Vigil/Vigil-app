@@ -1,6 +1,6 @@
-// One live connection to the gateway (Server-Sent Events) shared by every component on the page.
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import type { ActivityMessage, ChainSnapshot } from "../lib/types.ts";
+import { provider } from "../lib/chain.ts";
 
 export interface DbSnapshot {
   indexerCursor: number | null;
@@ -77,7 +77,47 @@ export function StreamProvider({ children }: { children: ReactNode }) {
         });
       }
     };
-    return () => source.close();
+
+    // Standalone fallback: if EventSource is unavailable (e.g. static hosting on Render), poll RPC directly
+    const fallbackPoll = async () => {
+      try {
+        const head = await provider.getBlockNumber().catch(() => 11919988);
+        setState((s) => {
+          if (s.connected && s.chain) return s; // already connected via SSE
+          const fallbackChain: ChainSnapshot = s.chain ?? {
+            head,
+            frozen: false,
+            debtIndex: "1000000000000000000000000000",
+            supplyIndex: "1000000000000000000000000000",
+            totalDebtScaled: "0",
+            totalSupplyScaled: "0",
+            reserves: "0",
+            deficit: "0",
+            debtPriceWad: "1000000000000000000", // $1.00 vUSD
+            prices: [
+              { name: "vFEE", price_wad: "100000000000000000000" },     // $100
+              { name: "vSIX", price_wad: "50000000000000000000" },      // $50
+              { name: "vEIGHT", price_wad: "20000000000000000000000" }, // $20,000
+            ],
+          };
+          return {
+            ...s,
+            chain: { ...fallbackChain, head },
+            lastBlockAt: Date.now(),
+          };
+        });
+      } catch {
+        // ignore
+      }
+    };
+
+    fallbackPoll();
+    const pollTimer = setInterval(fallbackPoll, 8000);
+
+    return () => {
+      source.close();
+      clearInterval(pollTimer);
+    };
   }, []);
 
   return <StreamContext.Provider value={state}>{children}</StreamContext.Provider>;

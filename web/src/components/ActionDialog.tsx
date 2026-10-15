@@ -30,6 +30,7 @@ export interface DialogProps {
   onRepay: (amount: string) => void;
   onRepayAll: () => void;
   onWithdraw: (asset: Collateral, amount: string) => void;
+  onMintToken?: (assetAddress: string, name: string) => void;
 }
 
 const TABS: { key: Tab; label: string }[] = [
@@ -143,6 +144,34 @@ export function ActionDialog(p: DialogProps) {
           <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" inputMode="decimal" />
           <button className="pill-btn" onClick={() => setAmount(maxText)}>Max</button>
         </div>
+
+        {p.tab === "deposit" && collateral && p.onMintToken && (
+          <div className="dlg-faucet-hint">
+            <span>Need test tokens?</span>
+            <button
+              type="button"
+              className="pill-btn highlight"
+              disabled={p.busy !== null}
+              onClick={() => p.onMintToken!(collateral.address, collateral.name)}
+            >
+              🚰 Mint 1,000 Free {collateral.name}
+            </button>
+          </div>
+        )}
+
+        {p.tab === "repay" && p.config && p.onMintToken && (
+          <div className="dlg-faucet-hint">
+            <span>Need vUSD to pay down debt?</span>
+            <button
+              type="button"
+              className="pill-btn highlight"
+              disabled={p.busy !== null}
+              onClick={() => p.onMintToken!(p.config!.debt, "vUSD")}
+            >
+              🚰 Mint 100 Free vUSD
+            </button>
+          </div>
+        )}
 
         <div className="overview">
           {overview.map((o) => (

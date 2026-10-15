@@ -30,6 +30,26 @@ export async function mintTestTokens(ctx: ActionContext): Promise<string> {
   return " 1000 of each collateral and 100 vUSD minted.";
 }
 
+// Mint a specific collateral or debt token directly in a single transaction
+export async function mintSingleToken(ctx: ActionContext, assetAddress: string, amountText = "1000"): Promise<string> {
+  const { who, contracts } = ctx;
+  const isDebt = assetAddress.toLowerCase() === contracts.config.debt.toLowerCase();
+  if (isDebt) {
+    const decimals = contracts.config.debtDecimals;
+    const amount = ethers.parseUnits(amountText, decimals);
+    await sendTransaction(who, contracts.debtToken, "mint", [who, amount]);
+    return ` Minted ${amountText} vUSD to your wallet.`;
+  }
+  const collateral = contracts.config.collaterals.find(
+    (c) => c.address.toLowerCase() === assetAddress.toLowerCase(),
+  );
+  if (!collateral) throw new Error("Unknown token address");
+  const contract = contracts.tokens[assetAddress.toLowerCase()];
+  const amount = ethers.parseUnits(amountText, collateral.decimals);
+  await sendTransaction(who, contract, "mint", [who, amount]);
+  return ` Minted ${amountText} ${collateral.name} to your wallet.`;
+}
+
 export async function supply(ctx: ActionContext, asset: Collateral, text: string): Promise<string> {
   const { who, contracts } = ctx;
   const token = tokenInfo(asset.name);

@@ -300,6 +300,12 @@ export function MarketsPage() {
               chain={chain}
               history={stream.priceHistory}
               query={query}
+              walletCollateral={walletCollateral}
+              account={account}
+              onMintToken={(assetAddr, name) =>
+                run("mint-" + name, "Mint " + name, (ctx) => actions.mintSingleToken(ctx, assetAddr, "1000"))
+              }
+              busy={busy}
               onOpen={(asset, t) => openDialog(config?.collaterals.indexOf(asset) ?? 0, t)}
             />
 
@@ -307,6 +313,12 @@ export function MarketsPage() {
               config={config}
               chain={chain}
               market={market}
+              walletVusd={walletVusd}
+              account={account}
+              onMintVusd={() =>
+                run("mint-vusd", "Mint vUSD", (ctx) => actions.mintSingleToken(ctx, config!.debt, "100"))
+              }
+              busy={busy}
               onBorrow={() => openDialog(0, "borrow")}
               onRepay={() => openDialog(0, "repay")}
             />
@@ -407,6 +419,9 @@ export function MarketsPage() {
         onTab={(t) => setDialog((d) => ({ ...d, tab: t }))}
         onAsset={(assetIndex) => setDialog((d) => ({ ...d, assetIndex }))}
         onClose={() => setDialog((d) => ({ ...d, open: false }))}
+        onMintToken={(assetAddr, name) =>
+          run("mint-" + name, "Mint " + name, (ctx) => actions.mintSingleToken(ctx, assetAddr, "1000"))
+        }
         onSupply={(asset, text) => run("deposit", "Supply", (ctx) => actions.supply(ctx, asset, text))}
         onBorrow={(text) => run("borrow", "Borrow", (ctx) => actions.borrow(ctx, text))}
         onRepay={(text) => run("repay", "Repay", (ctx) => actions.repay(ctx, text))}
