@@ -12,17 +12,22 @@
   position: sticky;
   top: 0;
   z-index: 50;
-  background: rgba(9, 13, 22, 0.85);
+  background: var(--surface);
   backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
+  width: 100%;
 }
 .landing-nav .wrap {
   display: flex;
   align-items: center;
   height: 70px;
+  padding: 0 24px;
+  box-sizing: border-box;
 }
 .nav-links {
   display: flex;
+  align-items: center;
   gap: 24px;
   margin-left: 28px;
 }
@@ -40,6 +45,19 @@
   display: flex;
   align-items: center;
   gap: 16px;
+}
+@media (max-width: 860px) {
+  .nav-links {
+    display: none;
+  }
+  .landing-nav .wrap {
+    padding: 0 16px;
+  }
+}
+@media (max-width: 520px) {
+  .network-tag {
+    display: none;
+  }
 }
 .network-tag {
   display: inline-flex;

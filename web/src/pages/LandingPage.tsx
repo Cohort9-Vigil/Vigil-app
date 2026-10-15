@@ -4,6 +4,7 @@ import { useProtocolOnce, useConfig } from "../state/hooks.ts";
 import { computeMarket } from "../lib/rates.ts";
 import { fmt, short } from "../lib/format.ts";
 import { useStream } from "../state/stream.tsx";
+import { ThemeButton } from "../components/ThemeButton.tsx";
 
 export function LandingPage() {
   const chain = useProtocolOnce();
@@ -73,6 +74,7 @@ export function LandingPage() {
               <span className="pulse-dot" />
               {stream.connected ? `Sepolia #${block}` : "Syncing RPC…"}
             </span>
+            <ThemeButton />
             <a className="btn-launch" href="markets.html">
               Launch App ↗
             </a>
